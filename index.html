@@ -1208,6 +1208,7 @@
 
   <script>
     const MAX_WEBHOOK_URL = "https://functions.yandexcloud.net/d4ecskd6nqtu4qlb0q7c";
+    const COOLDOWN_MS = 5 * 60 * 1000;
 
     function selectProgram(progName) {
       const sel = document.getElementById('programSelect');
@@ -1223,29 +1224,67 @@
       const phone = document.getElementById('parentPhone').value.trim();
       const trap = (document.getElementById('websiteTrap') || {}).value || "";
 
+      const digits = phone.replace(/\D/g, "");
+      if (digits.length < 10 || digits.length > 11) {
+        statusBox.style.display = "block";
+        statusBox.style.background = "#FEF2F2";
+        statusBox.style.borderColor = "#FCA5A5";
+        statusBox.style.color = "#991B1B";
+        statusBox.innerHTML = "Введите корректный номер телефона (10–11 цифр).";
+        return;
+      }
+
+      const lastTs = Number(localStorage.getItem("bakalavrik_last_lead") || 0);
+      if (Date.now() - lastTs < COOLDOWN_MS) {
+        btn.disabled = true;
+        btn.textContent = "⏳ Заявка уже отправлена";
+        statusBox.style.display = "block";
+        statusBox.style.background = "#F0FDF4";
+        statusBox.style.borderColor = "#86EFAC";
+        statusBox.style.color = "#166534";
+        statusBox.innerHTML = "Вы уже отправили заявку недавно — педагог скоро свяжется с вами! Или позвоните напрямую: <b>8 923 760-43-47</b>";
+        return;
+      }
+
+      const safeName = name.replace(/[<>&"']/g, "");
+      const safePhone = phone.replace(/[<>&"']/g, "");
       const text = `Здравствуйте! Заявка с сайта «Бакалаврик»:\n👤 Родитель / ребёнок: ${name}\n📚 Программа: ${prog}\n📞 Телефон: ${phone}`;
 
       btn.disabled = true;
       btn.textContent = "Отправляем заявку в MAX...";
 
+      let ok = false;
+      let rateLimited = false;
       try {
-        await fetch(MAX_WEBHOOK_URL, {
+        const resp = await fetch(MAX_WEBHOOK_URL, {
           method: "POST",
           headers: { "Content-Type": "text/plain;charset=UTF-8" },
           body: JSON.stringify({ name, program: prog, phone, text, website: trap })
         });
+        if (resp.status === 429) rateLimited = true;
+        else if (resp.ok) ok = true;
       } catch (err) {}
 
-      if (navigator.clipboard) {
-        try { await navigator.clipboard.writeText(text); } catch (_) {}
+      if (rateLimited) {
+        statusBox.style.display = "block";
+        statusBox.style.background = "#FEF2F2";
+        statusBox.style.borderColor = "#FCA5A5";
+        statusBox.style.color = "#991B1B";
+        statusBox.innerHTML = "Слишком много отправок подряд. Подождите 2 минуты или позвоните нам напрямую: <b>8 923 760-43-47</b>";
+        btn.textContent = "⏳ Подождите 2 минуты";
+        return;
       }
 
-      btn.disabled = false;
+      if (ok) localStorage.setItem("bakalavrik_last_lead", String(Date.now()));
+      btn.disabled = true;
       btn.textContent = "✅ Заявка отправлена!";
       statusBox.style.display = "block";
+      statusBox.style.background = "#F0FDF4";
+      statusBox.style.borderColor = "#86EFAC";
+      statusBox.style.color = "#166534";
       statusBox.innerHTML = `
-        <strong>Спасибо, ${name}! Ваша заявка передана педагогу в MAX.</strong><br>
-        Мы свяжемся с вами по номеру <b>${phone}</b>.<br>
+        <strong>Спасибо, ${safeName}! Ваша заявка передана педагогу в MAX.</strong><br>
+        Мы свяжемся с вами по номеру <b>${safePhone}</b>.<br>
         <div style="margin-top:8px; display:flex; gap:8px; flex-wrap:wrap;">
           <a href="https://vk.com/club194444456" target="_blank" rel="noopener" style="color:#0284C7; font-weight:800;">Перейти в нашу группу ВК →</a>
         </div>
